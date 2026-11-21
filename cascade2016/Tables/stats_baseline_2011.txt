@@ -1,0 +1,14 @@
+Row,OutStats
+# of Nodes,199
+# of Links,7798
+# of exporting nodes,184
+# of importing nodes,199
+Total Trade (tons),1.277555552325e+15
+network (unweighted) characteristic path length,1.92480159831289
+network (unweighted) global efficiency,0.58524566661116
+network radius (unweighted),1
+network diameter (unweighted),4
+network (weighted) characteristic path length,1.00936972417726e-08
+network (weighted) global efficiency,104845777264.222
+network radius (weighted),7.20585692050499e-10
+network diameter (weighted),4.02335764190118e-07

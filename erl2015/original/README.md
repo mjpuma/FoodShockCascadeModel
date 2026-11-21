@@ -13,7 +13,12 @@ The maintained implementation is the Python package in [`../fsc2015/`](../fsc201
 | `GTN_totalproduction.m` | Sep 2014 | Percentage of world production affected by a targeted attack. M.J. Puma, 2014. |
 | `ComplexNetworkExtract_climatedisturbances.m` | Oct 2014 | Network files for plotting in Cytoscape, and network statistics with and without an attack. M.J. Puma, 2013–2014. |
 | `GlobalFoodReserves.m` | May 2015 | Global food reserves (stocks) from FAO, IGC, USDA and national data compiled in November 2014. M.J. Puma, 2014. |
+| `Global_Trade_network_quantities.m` | Oct 2013 | Earlier version of the network script: reads the annual bilateral trade network and computes complex-network statistics with the Complex Networks toolbox by Lev Muchnik. M.J. Puma, 2012. |
+| `FAO_bilateral_trade_load_v09272013.m` | Oct 2013 | Builds trade networks from the FAOSTAT bilateral trade files (1986–2009 by commodity, later years by year), optionally weighted by green and blue virtual water content. |
+| `FAO_bilateral_trade_loadCE_v10162013.m` | Oct 2013 | The same, with crop-equivalent weighting instead of virtual water. This is the loader the network scripts above name in their headers. |
+| `colormap_function.m` | May 2015 | Colour maps used in the figures (ColorBrewer and colour-blind-safe tables). |
+| `VW_analyses/` | 2011–2012 | Country and crop lookup helpers (`country_*.m`, `crop_lookup.m`) and `VWC_siebert_open.m`, which reads the Siebert and Döll (2010) crop water use grids used for virtual water weighting. |
 
 ## Running them
 
-They will not run as they are. They read FAOSTAT and World Bank extracts downloaded in 2012–2014 from local Dropbox folders that are not part of this repository (country lists, GDP and population spreadsheets, bilateral trade matrices, shapefiles), and they call helper functions that are not included here, among them the FAOSTAT loaders named in their headers (`FAO_bilateral_trade_loadCE_*.m`), `colormap_function`, `logfit_v2`, graph utilities (`GraphLoadFromFile`, `GraphRemoveUnlinkedNodes`), and the m_map mapping toolbox (`m_proj`, `m_patch`, `m_grid`).
+They will not run as they are. They read FAOSTAT and World Bank extracts downloaded in 2012–2014 from local Dropbox folders that are not part of this repository (country lists, GDP and population spreadsheets, bilateral trade matrices, shapefiles). The project's own helpers (the FAOSTAT loaders, colour maps and lookups) are included above. Third-party code they call is not included and should be obtained from its authors: `logfit` by Jonathan Lansey (MATLAB File Exchange), the Complex Networks toolbox by Lev Muchnik (`GraphLoadFromFile`, `GraphRemoveUnlinkedNodes`), and the m_map mapping toolbox by Rich Pawlowicz (`m_proj`, `m_patch`, `m_grid`).

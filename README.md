@@ -58,8 +58,11 @@ Each step below kept the country trade network of the one before it and added on
 |---|---|---|---|
 | 1. Export-ban accounting | Puma et al. 2015, ERL, doi:10.1088/1748-9326/10/2/024007 | Annual bilateral wheat and rice networks, network metrics, and continental export bans. Losses are counted with no reallocation (static) or with the remaining world exports handed to importers in descending GDP order (dynamic). No stocks and no iteration. | `erl2015/`, Python, FAOSTAT through 2024 |
 | 2. Reserves and proportional cascade | Marchand et al. 2016, ERL, doi:10.1088/1748-9326/11/9/095009 | Production shocks, stock draws, and an iterated proportional trade update along existing links | https://github.com/pmarchand1/cereals-network-shocks |
+| 2b. Cascade scenarios in MATLAB | Precursor runs for Heslin et al. 2020 (Dust Bowl); unpublished Laki, volcanic and generic shocks | The Marchand et al. cascade run on cereal networks for multi-year historical and hypothetical shocks, with network statistics before and after | `cascade2016/`, MATLAB 2016–2018, kept as a record |
 | 3. Food Shock Cascade, PTA and RTA | Heslin et al. 2020, Front. Sustain. Food Syst., doi:10.3389/fsufs.2020.00026 | Published PTA and RTA rules, alpha for usable stocks, kilocalorie scenario library | `main/main.R` modes 0 and 1 |
 | 4. Stock-then-split | This repository, flood work | Remaining shortage split between exports and domestic use after stocks are drawn | `main/main.R` mode 2 |
+
+The original MATLAB behind step 1 is kept unchanged in [`erl2015/original/`](erl2015/original/), and the MATLAB for step 2b in [`cascade2016/`](cascade2016/). Neither is maintained; they are a record of the computations.
 
 The 2015 module shares no code with the R cascade and does not change PTA, RTA, or stock-then-split. Its rules, data, and differences from the 2015 paper are in [`erl2015/README.md`](erl2015/README.md).
 

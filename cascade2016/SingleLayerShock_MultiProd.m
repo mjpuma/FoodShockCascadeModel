@@ -1,0 +1,1071 @@
+clear; close all; clc; 
+%% Food-shock simulation for multiple values of (negative) production shock
+%  SingleLayerShock_MultiProd.m
+% -------------------------------------------
+% Summary: Simulations of incrementally larger shocks using cascade model 
+% based originally on Marchand et al (2016) model.  
+%  
+% Inputs:  1) Processed Stocks Data 
+%          2) Country list (should be consistent with data above)
+%          3) Table to convert country codes from 
+%             one list to another (e.g., FAOSTAT to USDA)
+%          4) Subset country list
+%
+% Outputs:
+%          1) Network statistics for cereal networks before and after
+%          shocks
+%          2) Full and subset networks to Circos and Cytoscape
+%
+% Author: Michael J. Puma, 2016
+
+%% Set environment
+clear; clc; close all;
+rootdir = '/Users/michaeljpuma/';
+%rootdir = '/Users/mpuma/';
+EventFolder  = [rootdir 'Dropbox/PumaCascadeModel/'];
+FBSfolder = [rootdir 'Dropbox/FAOSTAT_FoodBalanceSheet/'];
+ParamFolder = [rootdir 'Dropbox/FoodParameters/'];
+TradeFolder  = [rootdir 'Dropbox/FoodMatrices/'];
+ReservesFolder  = [rootdir 'FoodReserves/'];
+FigFolder  = [EventFolder 'Figures/'];
+flag_figstime = 1;
+
+%% Select layer
+%{0} ='aggregation of 9 categories'
+%{1} ='Wheat';  {2}='Barley';  {3}= 'Maize'; {4}= Rye'; {5}='Oats';
+%{6} ='Millet'; {7}='Sorghum'; {8}='OtherCereals';      {9}='Rice'; 
+layer_select = 3;
+
+%% Shock specification
+%Production decline
+ProdLoss_Increments = [1e-4, 1e-3, 1e-2, 0.05, 0.1, 0.5, 1]; 
+
+%% Shock increments
+num_increments = length(ProdLoss_Increments); %
+increments = 1:num_increments;
+
+%% Epicenter list
+% % Laki
+% epicenter_countries = {'AUT','BEL','CHN','CZE','DNK','EGY','FIN','FRA','DEU','HUN',...
+%     'IND','ITA','JPN','LIE','LUX','NLD','NOR','POL',...
+%     'PRT','RUS','ESP','SWE','CHE','GBR'}; %'ISL','SCG','SJM'
+% epicentername = 'Laki';
+
+% % % Great Famine of 1315 to 1317
+% epicenter_countries = {'BEL','CZE','DNK','FIN','FRA','DEU','ISL','IRL','IMN','LUX',...
+%     'NLD','NOR','POL','SWE','GBR'};
+% epicentername = 'GreatFamine';
+
+% % % Year without a summmer of 1816
+% epicenter_countries = {'AND','AUT','BEL','BIH','CAN','HRV','CZE','EST',...
+%     'FIN','FRA','DEU','HUN','ISL','IRL','IMN','ITA','LVA','LIE','LUX','MLT','MCO',...
+%     'MNE','NLD','NOR','POL','PRT','SMR','SRB','SVK','SVN','ESP','SWE','CHE','GBR','USA'};
+% epicentername = 'NoSummer';
+% 
+% % % Great Drought of 1876 to 1878
+% epicenter_countries = {'DZA','AGO','AUS','BTN','BRA','BRN','KHM','CHN','PRK',...
+%     'EGY','IND','IDN','JPN','LAO','MYS','MAR','MMR','PHL','KOR','SGP','ZAF',...
+%     'LKA','SDN','THA','VNM'};
+% epicentername = 'GreatDrought';
+%
+% % Nuclear Winter, India-Pakistan conflict
+% epicenter_countries = {'PAK','IND'};
+% epicentername = 'NuclearWinter'; 
+%
+% % % % Chinese Famine of 1959 to 1961
+% epicenter_countries = {'CHN'};
+% epicentername = 'ChineseFamine';
+% % 
+%Dust Bowl Drought of the 1930s
+epicenter_countries = {'USA'};
+epicentername = 'DustBowl';
+%------------------------------
+% South Africa
+%epicenter_countries = {'ZAF'};
+%epicentername = 'SAfrica';
+% % Saudi Arabia
+% epicentername = 'SAU';
+% epicenter_countries = {'SAU'};
+% Ireland
+% epicentername = 'UK';
+% epicenter_countries = {'GBR'};
+%------------------------------
+
+%% Compute number of epicenters
+num_epicenters = length(epicenter_countries);
+
+
+%% Trade data parameters and year to shock network & extract network stats
+title_YearA = '2011'; 
+Year_A = str2double(title_YearA);
+commod_title='cerealsSPAM_tradeAMIS'; 
+flow_type='kcal'; 
+element='Export_Quantity';
+
+%% Simulation Parameters
+cfrac = 0.001;    % fraction of shock absorbed by C before changing trade 
+asym = 1;     % asym = 1: shocked countries can't increase their exports if R = 0
+kmax = 500;   % max number of iterations
+amin = 1e-10;  % any shock below amin (as fraction of net supply) is negligible
+tol =  1e-7;  % tolerance for post-cascade diagnostic and for export matrix values
+anim_out = 0; % anim_out=1(!!modifications needed!!): return dR, dC and dE for each iteration 
+
+%% Threshold for stocks to use ratio
+% Aggregate calories (wheat, rice, maize)	Bobenrieth, E., Wright, B., &
+% Zeng, D. (2013). Stocks-to-use ratios and prices as indicators of
+% vulnerability to spikes in global cereal markets. Agricultural Economics,
+% 44(s1), 43-52. !!SEE FIGURE 5!!
+SUR_threshold = 0.15;
+flag_threshold = 1;
+
+%% Item titles and FAO Calorie Content (kcal/100 gram)
+num_items=9;
+Item_title{1} =  'Wheat';        CalorieContent(1,1) =  334;
+Item_title{2} =  'Barley';       CalorieContent(2,1) =  332;
+Item_title{3} =  'Maize';        CalorieContent(3,1) =  356;
+Item_title{4} =  'Rye';          CalorieContent(4,1) =  319;
+Item_title{5} =  'Oats';         CalorieContent(5,1) =  385;
+Item_title{6} =  'Millet';       CalorieContent(6,1) =  340;
+Item_title{7} =  'Sorghum';      CalorieContent(7,1) =  343;
+Item_title{8} =  'OtherCereals'; CalorieContent(8,1) =  346;
+Item_title{9} =  'Rice';         CalorieContent(9,1) =  360;
+
+% CalorieContent convert from "per 100 grams" to "per gram"
+CalorieContent=CalorieContent/100;
+
+% Full list with **FAOSTAT** country codes
+[country_FAOSTATcodes,country_FAOSTATnames,temp] = xlsread([ParamFolder 'countrylist_partialv7_4column_China351.xls']);
+index_tradecountry = 1:length(country_FAOSTATnames);
+clear temp;
+
+%Conversion table for FAOSTAT-based full list
+[~, ~, countrycodeCONVERT] = xlsread([ParamFolder 'country_code_CONVERTv7.xls'],'Sheet1');
+countrycodeCONVERT = countrycodeCONVERT(2:end,2:end);
+countrycodeCONVERT(cellfun(@(x) ~isempty(x) && isnumeric(x) && isnan(x),countrycodeCONVERT)) = {''};
+
+FAOSTATcode = cell2mat(countrycodeCONVERT(:,2));
+GAULcode = cell2mat(countrycodeCONVERT(:,6));
+ISO3alpha = countrycodeCONVERT(:,9); 
+USDAcode = countrycodeCONVERT(:,10);
+clearvars countrycodeCONVERT; 
+
+%% *** Identify country codes used in the USDA PSD dataset ***
+for i = 1:size(country_FAOSTATcodes,1)
+   index = find(FAOSTATcode==country_FAOSTATcodes(i));
+   country_USDAtradecodes{i,1}  = USDAcode{index,1};
+   country_GAULtradecodes(i,1) = GAULcode(index);
+   country_ISO3alphatradecodes{i,1}  = ISO3alpha{index,1};
+end
+
+%% Subset countries for plotting
+% country_title1= 'G20'; country_print1 = 'G20';
+% [countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+%     xlsread([ParamFolder 'countrylist_G20.xls']);
+% country_title1= 'G8plus5'; country_print1 = 'G8plus5'; 
+% [countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+%     xlsread([ParamFolder 'countrylist_G8plus5.xls']); 
+country_title1= 'G8plus5PAK'; country_print1 = 'G8plus5PAK'; 
+[countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+    xlsread([ParamFolder 'countrylist_G8plus5_PAK.xls']);
+% country_title1= 'G8plus5Irl'; country_print1 = 'G8plus5Irl'; 
+% [countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+%     xlsread([ParamFolder 'countrylist_G8plus5Ireland.xls']); 
+% country_title1= 'southernAfrica'; country_print1 = 'southernAfrica';
+% [countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+%      xlsread([ParamFolder 'countrylist_southernAfrica.xls']); 
+% country_title1= 'Africa'; country_print1 = 'Africa'; 
+%  [countrysubset_codes1,countrysubset_names1,countrysubset_info1] = ...
+%     xlsread([ParamFolder 'countrylist_Africa.xls']); 
+
+%% Shock country identification 
+i_Epicenter = [];
+for i = 1:length(epicenter_countries)
+    indtemp = strfind(country_ISO3alphatradecodes, epicenter_countries{i});
+    indtemp2 = find(not(cellfun('isempty', indtemp)));
+    i_Epicenter(end+1) = indtemp2;
+    clear indtemp indtemp2
+end
+
+%% Extract network statistics for individual country
+%indtemp = strfind(country_FAOSTATnames, 'United States of America');
+%indtemp = strfind(country_FAOSTATnames, 'Ireland');
+%indtemp = strfind(country_FAOSTATnames, 'Republic of Korea');
+%i_Epicenter = find(not(cellfun('isempty', indtemp)));
+
+%% Open trade data (export matrices)
+load([TradeFolder 'Trade_Graph_' commod_title '_' flow_type '_' element '_' title_YearA '_' title_YearA '.mat']);
+E0_YearA = zeros(max(Graph.Index.Properties.NodeIDs));
+for i_link = 1: length(Graph.Data)
+    E0_YearA(Graph.Data(i_link,1),Graph.Data(i_link,2))=Graph.Data(i_link,3);
+end
+
+% Sum export matrix to get export and import vectors (country totals)
+E0_YearA_vec = sum(E0_YearA,2); % export vector
+I0_YearA_vec = sum(E0_YearA,1); % import vector
+
+%% Subset countries and add row/column to account for "Rest of World"
+% Initialize Rest of World
+restofWorld_Index = 1:size(country_FAOSTATcodes,1);
+number_subsetCountries1 = length(countrysubset_codes1);
+
+for i_country = 1:number_subsetCountries1   
+    subset_index(i_country) = find(FAOSTATcode==countrysubset_codes1(i_country,1));
+end
+restofWorld_Index(subset_index)=[];
+
+% Subset matrix
+E0_YearA_subset = zeros(number_subsetCountries1+1,number_subsetCountries1+1);
+
+for i_country = 1:number_subsetCountries1
+    % Assign exports from each subset country 
+    % (Identify column in fulll matrix and assign to subset matrix) 
+   E0_YearA_subset(1:number_subsetCountries1,i_country)=...
+       E0_YearA(subset_index,subset_index(i_country));
+   
+  E0_YearA_subset(number_subsetCountries1+1,i_country)=...
+       nansum(E0_YearA(restofWorld_Index,subset_index(i_country)));   
+end
+
+% Import/exports between subset countries and "Rest of World"
+for i_country = 1:number_subsetCountries1
+E0_YearA_subset(i_country,number_subsetCountries1+1)=...
+    nansum(E0_YearA(subset_index(i_country),restofWorld_Index));   
+end
+
+% Import/exports amoung "Rest of World"
+temp=E0_YearA(restofWorld_Index,restofWorld_Index);
+E0_YearA_subset(number_subsetCountries1+1,number_subsetCountries1+1)=nansum(temp(:));
+
+if nansum(E0_YearA_subset(:))/nansum(E0_YearA(:))~=1
+    'Error with subset' %#ok<NOPTS>
+    return;
+end
+
+%% Open reserves data
+filename = [ReservesFolder 'CerealStocks_movavg_20022011.txt'];
+formatSpec = '%25s%25s%25s%25s%25s%25s%25s%25s%s%[^\n\r]';
+fileID = fopen(filename,'r');
+dataArray = textscan(fileID, formatSpec, 'Delimiter', '', 'WhiteSpace', '',  'ReturnOnError', false);
+fclose(fileID);
+% Replace non-numeric strings with NaN.
+raw = repmat({''},length(dataArray{1}),length(dataArray)-1);
+for col=1:length(dataArray)-1
+    raw(1:length(dataArray{col}),col) = dataArray{col};
+end
+numericData = NaN(size(dataArray{1},1),size(dataArray,2));
+
+for col=[1,2,3,4,5,6,7,8,9]
+    % Converts strings in the input cell array to numbers. Replaced non-numeric
+    % strings with NaN.
+    rawData = dataArray{col};
+    for row=1:size(rawData, 1);
+        % Create a regular expression to detect and remove non-numeric prefixes and
+        % suffixes.
+        regexstr = '(?<prefix>.*?)(?<numbers>([-]*(\d+[\,]*)+[\.]{0,1}\d*[eEdD]{0,1}[-+]*\d*[i]{0,1})|([-]*(\d+[\,]*)*[\.]{1,1}\d+[eEdD]{0,1}[-+]*\d*[i]{0,1}))(?<suffix>.*)';
+        try
+            result = regexp(rawData{row}, regexstr, 'names');
+            numbers = result.numbers;
+            
+            % Detected commas in non-thousand locations.
+            invalidThousandsSeparator = false;
+            if any(numbers==',');
+                thousandsRegExp = '^\d+?(\,\d{3})*\.{0,1}\d*$';
+                if isempty(regexp(thousandsRegExp, ',', 'once'));
+                    numbers = NaN;
+                    invalidThousandsSeparator = true;
+                end
+            end
+            % Convert numeric strings to numbers.
+            if ~invalidThousandsSeparator;
+                numbers = textscan(strrep(numbers, ',', ''), '%f');
+                numericData(row, col) = numbers{1};
+                raw{row, col} = numbers{1};
+            end
+        catch me
+        end
+    end
+end
+% Replace non-numeric cells with NaN
+R = cellfun(@(x) ~isnumeric(x) && ~islogical(x),raw); % Find non-numeric cells
+raw(R) = {NaN}; % Replace non-numeric cells
+
+% Allocate imported array to column variable names
+WheatReserves = cell2mat(raw(:, 1));
+BarleyReserves = cell2mat(raw(:, 2));
+MaizeReserves = cell2mat(raw(:, 3));
+RyeReserves = cell2mat(raw(:, 4));
+OatReserves = cell2mat(raw(:, 5));
+MilletReserves = cell2mat(raw(:, 6));
+SorghumReserves = cell2mat(raw(:, 7));
+OtherCerealReserves = cell2mat(raw(:, 8));
+RiceReserves = cell2mat(raw(:, 9));
+clearvars filename formatSpec fileID dataArray ans raw col numericData ...
+    rawData row regexstr result numbers invalidThousandsSeparator ...
+    thousandsRegExp me R;
+
+% Remove any nan
+WheatReserves(isnan(WheatReserves)) = 0;
+BarleyReserves(isnan(BarleyReserves)) = 0;
+MaizeReserves(isnan(MaizeReserves)) = 0;
+RyeReserves(isnan(RyeReserves)) = 0;
+OatReserves(isnan(OatReserves)) = 0;
+MilletReserves(isnan(MilletReserves)) = 0;
+SorghumReserves(isnan(SorghumReserves)) = 0;
+OtherCerealReserves(isnan(OtherCerealReserves)) = 0;
+RiceReserves(isnan(RiceReserves)) = 0;
+
+%% Convert and aggregate reserves
+% Conversion: 1000 metric tons -> metric tons -> grams -> kilocalories
+gramsperMetricTon = 10^6;  % metric ton: unit of weight equal to 1,000 kilograms, or approximately 2,204.6 pounds.
+if layer_select == 0
+    R0_YearA = WheatReserves*10^3*gramsperMetricTon*CalorieContent(1,1) + ...
+        BarleyReserves*1000*gramsperMetricTon*CalorieContent(2,1) + ...
+        MaizeReserves*1000*gramsperMetricTon*CalorieContent(3,1) + ...
+        RyeReserves*1000*gramsperMetricTon*CalorieContent(4,1) + ...
+        OatReserves*1000*gramsperMetricTon*CalorieContent(5,1) + ...
+        MilletReserves*1000*gramsperMetricTon*CalorieContent(6,1) + ...
+        SorghumReserves*1000*gramsperMetricTon*CalorieContent(7,1) + ...
+        OtherCerealReserves*1000*gramsperMetricTon*CalorieContent(8,1) + ...
+        RiceReserves*1000*gramsperMetricTon*CalorieContent(9,1);
+elseif layer_select == 1
+    R0_YearA = WheatReserves*10^3*gramsperMetricTon*CalorieContent(1,1);
+elseif layer_select == 2
+    R0_YearA = BarleyReserves*1000*gramsperMetricTon*CalorieContent(2,1);
+elseif layer_select == 3
+    R0_YearA = MaizeReserves*1000*gramsperMetricTon*CalorieContent(3,1);
+elseif layer_select == 4
+    R0_YearA = RyeReserves*1000*gramsperMetricTon*CalorieContent(4,1);
+elseif layer_select == 5
+    R0_YearA = OatReserves*1000*gramsperMetricTon*CalorieContent(5,1);
+elseif layer_select == 6
+    R0_YearA = MilletReserves*1000*gramsperMetricTon*CalorieContent(6,1);
+elseif layer_select == 7
+    R0_YearA = SorghumReserves*1000*gramsperMetricTon*CalorieContent(7,1);
+elseif layer_select == 8
+    R0_YearA = OtherCerealReserves*1000*gramsperMetricTon*CalorieContent(8,1);
+elseif layer_select == 9
+    R0_YearA = RiceReserves*1000*gramsperMetricTon*CalorieContent(9,1);
+end
+
+%% Load data from FAOSTAT Food Balance Sheets (FBS): year_start = 1961; year_end =   2013;
+%    generated by code CountryMetric_Fragility_Step1.m
+%    Units: 1000 metric tons except "kcalpersonday" and "kgpersonyr"
+year_FBS = 1961:2013;
+index_YearA = find(year_FBS==Year_A);
+yroffset = 1;
+
+for i_item = 1:num_items
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Production_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Import_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Export_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_StockVariation_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_DomesticSupply_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Seed_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Waste_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Processed_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Otheruses_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_Food_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_FoodSupply_kcalpersonday_CountryFullList.txt']);
+    load([FBSfolder 'FBS_processed/' Item_title{i_item} '_FoodSupply_kgpersonyr_CountryFullList.txt']);
+end
+
+%% Extract production for specified year (i.e., YearA)
+% Conversion: 1000 metric tons -> metric tons -> grams -> kilocalories
+P_Wheat_YearA = squeeze(Wheat_Production_CountryFullList(:,index_YearA+yroffset));
+P_Barley_YearA = squeeze(Barley_Production_CountryFullList(:,index_YearA+yroffset));
+P_Maize_YearA = squeeze(Maize_Production_CountryFullList(:,index_YearA+yroffset));
+P_Rye_YearA = squeeze(Rye_Production_CountryFullList(:,index_YearA+yroffset));
+P_Oats_YearA = squeeze(Oats_Production_CountryFullList(:,index_YearA+yroffset));
+P_Millet_YearA = squeeze(Millet_Production_CountryFullList(:,index_YearA+yroffset));
+P_Sorghum_YearA = squeeze(Sorghum_Production_CountryFullList(:,index_YearA+yroffset));
+P_OtherCereals_YearA = squeeze(OtherCereals_Production_CountryFullList(:,index_YearA+yroffset));
+P_Rice_YearA = squeeze(Rice_Production_CountryFullList(:,index_YearA+yroffset));
+
+% Set NaN values to zero
+P_Wheat_YearA(isnan(P_Wheat_YearA))=0;
+P_Barley_YearA(isnan(P_Barley_YearA))=0;
+P_Maize_YearA(isnan(P_Maize_YearA))=0;
+P_Rye_YearA(isnan(P_Rye_YearA))=0;
+P_Oats_YearA(isnan(P_Oats_YearA))=0;
+P_Millet_YearA(isnan(P_Millet_YearA))=0;
+P_Sorghum_YearA(isnan(P_Sorghum_YearA))=0;
+P_OtherCereals_YearA(isnan(P_OtherCereals_YearA))=0;
+P_Rice_YearA(isnan(P_Rice_YearA))=0;
+
+%% Extract import for specified year (i.e., YearA)
+% Conversion: 1000 metric tons -> metric tons -> grams -> kilocalories
+I_Wheat_YearA = squeeze(Wheat_Import_CountryFullList(:,index_YearA+yroffset));
+I_Barley_YearA = squeeze(Barley_Import_CountryFullList(:,index_YearA+yroffset));
+I_Maize_YearA = squeeze(Maize_Import_CountryFullList(:,index_YearA+yroffset));
+I_Rye_YearA = squeeze(Rye_Import_CountryFullList(:,index_YearA+yroffset));
+I_Oats_YearA = squeeze(Oats_Import_CountryFullList(:,index_YearA+yroffset));
+I_Millet_YearA = squeeze(Millet_Import_CountryFullList(:,index_YearA+yroffset));
+I_Sorghum_YearA = squeeze(Sorghum_Import_CountryFullList(:,index_YearA+yroffset));
+I_OtherCereals_YearA = squeeze(OtherCereals_Import_CountryFullList(:,index_YearA+yroffset));
+I_Rice_YearA = squeeze(Rice_Import_CountryFullList(:,index_YearA+yroffset));
+
+% Set NaN values to zero
+I_Wheat_YearA(isnan(I_Wheat_YearA))=0;
+I_Barley_YearA(isnan(I_Barley_YearA))=0;
+I_Maize_YearA(isnan(I_Maize_YearA))=0;
+I_Rye_YearA(isnan(I_Rye_YearA))=0;
+I_Oats_YearA(isnan(I_Oats_YearA))=0;
+I_Millet_YearA(isnan(I_Millet_YearA))=0;
+I_Sorghum_YearA(isnan(I_Sorghum_YearA))=0;
+I_OtherCereals_YearA(isnan(I_OtherCereals_YearA))=0;
+I_Rice_YearA(isnan(I_Rice_YearA))=0;
+
+%% Extract export for specified year (i.e., YearA)
+% Conversion: 1000 metric tons -> metric tons -> grams -> kilocalories
+E_Wheat_YearA = squeeze(Wheat_Export_CountryFullList(:,index_YearA+yroffset));
+E_Barley_YearA = squeeze(Barley_Export_CountryFullList(:,index_YearA+yroffset));
+E_Maize_YearA = squeeze(Maize_Export_CountryFullList(:,index_YearA+yroffset));
+E_Rye_YearA = squeeze(Rye_Export_CountryFullList(:,index_YearA+yroffset));
+E_Oats_YearA = squeeze(Oats_Export_CountryFullList(:,index_YearA+yroffset));
+E_Millet_YearA = squeeze(Millet_Export_CountryFullList(:,index_YearA+yroffset));
+E_Sorghum_YearA = squeeze(Sorghum_Export_CountryFullList(:,index_YearA+yroffset));
+E_OtherCereals_YearA = squeeze(OtherCereals_Export_CountryFullList(:,index_YearA+yroffset));
+E_Rice_YearA = squeeze(Rice_Export_CountryFullList(:,index_YearA+yroffset));
+
+% Set NaN values to zero
+E_Wheat_YearA(isnan(E_Wheat_YearA))=0;
+E_Barley_YearA(isnan(E_Barley_YearA))=0;
+E_Maize_YearA(isnan(E_Maize_YearA))=0;
+E_Rye_YearA(isnan(E_Rye_YearA))=0;
+E_Oats_YearA(isnan(E_Oats_YearA))=0;
+E_Millet_YearA(isnan(E_Millet_YearA))=0;
+E_Sorghum_YearA(isnan(E_Sorghum_YearA))=0;
+E_OtherCereals_YearA(isnan(E_OtherCereals_YearA))=0;
+E_Rice_YearA(isnan(E_Rice_YearA))=0;
+
+%% Extract stock variation for specified year (i.e., YearA)
+%  we take dRsv to be positive if a commodity was consumed from
+%  country's i reserves in a given year (leading to a net stock decrease).
+%  Conversion: 1000 metric tons -> metric tons -> grams -> kilocalories
+dRsv_Wheat_YearA = squeeze(Wheat_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Barley_YearA = squeeze(Barley_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Maize_YearA = squeeze(Maize_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Rye_YearA = squeeze(Rye_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Oats_YearA = squeeze(Oats_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Millet_YearA = squeeze(Millet_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Sorghum_YearA = squeeze(Sorghum_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_OtherCereals_YearA = squeeze(OtherCereals_StockVariation_CountryFullList(:,index_YearA+yroffset));
+dRsv_Rice_YearA = squeeze(Rice_StockVariation_CountryFullList(:,index_YearA+yroffset));
+
+% Set NaN values to zero
+dRsv_Wheat_YearA(isnan(dRsv_Wheat_YearA))=0;
+dRsv_Barley_YearA(isnan(dRsv_Barley_YearA))=0;
+dRsv_Maize_YearA(isnan(dRsv_Maize_YearA))=0;
+dRsv_Rye_YearA(isnan(dRsv_Rye_YearA))=0;
+dRsv_Oats_YearA(isnan(dRsv_Oats_YearA))=0;
+dRsv_Millet_YearA(isnan(dRsv_Millet_YearA))=0;
+dRsv_Sorghum_YearA(isnan(dRsv_Sorghum_YearA))=0;
+dRsv_OtherCereals_YearA(isnan(dRsv_OtherCereals_YearA))=0;
+dRsv_Rice_YearA(isnan(dRsv_Rice_YearA))=0;
+
+%% Layer selction for P, E, I, and dR
+if layer_select == 0
+    % Convert to kilocalories and aggregate
+    P0_YearA_FBS  = P_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1) + ...
+        P_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1) + ...
+        P_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1) + ...
+        P_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1) + ...
+        P_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1) + ...
+        P_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1) + ...
+        P_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1) + ...
+        P_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1) + ...
+        P_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    
+    I0_YearA_FBS  = I_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1) + ...
+        I_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1) + ...
+        I_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1) + ...
+        I_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1) + ...
+        I_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1) + ...
+        I_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1) + ...
+        I_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1) + ...
+        I_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1) + ...
+        I_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    
+    E0_YearA_FBS = E_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1) + ...
+        E_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1) + ...
+        E_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1) + ...
+        E_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1) + ...
+        E_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1) + ...
+        E_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1) + ...
+        E_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1) + ...
+        E_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1) + ...
+        E_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    
+    dRsv0_YearA = dRsv_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1) + ...
+        dRsv_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1) + ...
+        dRsv_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1) + ...
+        dRsv_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1) + ...
+        dRsv_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1) + ...
+        dRsv_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1) + ...
+        dRsv_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1) + ...
+        dRsv_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1) + ...
+        dRsv_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    
+elseif layer_select == 1
+    P0_YearA_FBS  = P_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1);
+    I0_YearA_FBS  = I_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1);
+    E0_YearA_FBS = E_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1);
+    dRsv0_YearA = dRsv_Wheat_YearA*1000*gramsperMetricTon*CalorieContent(1,1);
+    
+elseif layer_select == 2
+    P0_YearA_FBS  = P_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1);
+    I0_YearA_FBS  = I_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1);
+    E0_YearA_FBS =  E_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1);
+    dRsv0_YearA =   dRsv_Barley_YearA*1000*gramsperMetricTon*CalorieContent(2,1);
+    
+elseif layer_select == 3
+    P0_YearA_FBS  = P_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1);
+    I0_YearA_FBS  = I_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1);
+    E0_YearA_FBS =  E_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1);
+    dRsv0_YearA =   dRsv_Maize_YearA*1000*gramsperMetricTon*CalorieContent(3,1);
+    
+elseif layer_select == 4
+    P0_YearA_FBS  = P_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1);
+    I0_YearA_FBS  = I_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1);
+    E0_YearA_FBS =  E_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1);
+    dRsv0_YearA =   dRsv_Rye_YearA*1000*gramsperMetricTon*CalorieContent(4,1);
+    
+elseif layer_select == 5
+    P0_YearA_FBS  = P_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1);
+    I0_YearA_FBS  = I_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1);
+    E0_YearA_FBS =  E_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1);
+    dRsv0_YearA =   dRsv_Oats_YearA*1000*gramsperMetricTon*CalorieContent(5,1);
+    
+elseif layer_select == 6
+    P0_YearA_FBS  = P_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1);
+    I0_YearA_FBS  = I_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1);
+    E0_YearA_FBS =  E_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1);
+    dRsv0_YearA = dRsv_Millet_YearA*1000*gramsperMetricTon*CalorieContent(6,1);
+    
+elseif layer_select == 7
+    P0_YearA_FBS  = P_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1);
+    I0_YearA_FBS  = I_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1);
+    E0_YearA_FBS = E_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1);
+    dRsv0_YearA = dRsv_Sorghum_YearA*1000*gramsperMetricTon*CalorieContent(7,1);
+    
+elseif layer_select == 8
+    P0_YearA_FBS = P_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1);
+    I0_YearA_FBS = I_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1);
+    E0_YearA_FBS = E_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1);
+    dRsv0_YearA  = dRsv_OtherCereals_YearA*1000*gramsperMetricTon*CalorieContent(8,1);
+    
+elseif layer_select == 9
+    P0_YearA_FBS  = P_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    I0_YearA_FBS  = I_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    E0_YearA_FBS = E_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    dRsv0_YearA = dRsv_Rice_YearA*1000*gramsperMetricTon*CalorieContent(9,1);
+    
+end
+
+%% Stocks-to-Use Ratio (SUR) vector for baseline network
+% Country level
+U0_YearA = P0_YearA_FBS+I0_YearA_vec'-E0_YearA_vec +dRsv0_YearA; % Use
+SUR_0_YearA = R0_YearA./U0_YearA;
+% Global level
+E0_YearA_global = nansum(E0_YearA_vec);
+I0_YearA_global = nansum(I0_YearA_vec);
+P0_YearA_global = nansum(P0_YearA_FBS);
+R0_YearA_global = nansum(R0_YearA);
+U0_YearA_global = nansum(U0_YearA);
+SUR_0_global= R0_YearA_global./U0_YearA_global;
+
+%% Compute "buffer" stocks above the threshold SUR
+% Country level
+SUR_buffer = SUR_0_YearA - SUR_threshold;
+SUR_buffer(SUR_buffer<0) = 0;
+SUR_buffer(isnan(SUR_buffer)) = 0;
+R0_YearA_threshold = SUR_buffer.*U0_YearA;
+R0_YearA_threshold(isnan(R0_YearA_threshold)) = 0;
+% Global level
+SUR_buffer_global = SUR_0_global - SUR_threshold;
+R0_YearA_globalthreshold = SUR_buffer_global.*U0_YearA_global;
+
+%% Network Statistics for baseline network
+% (undisturbed) networks
+i_incrementA = 1;
+[ NumbersOfNodes(1,i_incrementA),NumbersOfLinks(1,i_incrementA),NumNodes_out(1,i_incrementA),NumNodes_in(1,i_incrementA),TotalFlow(1,i_incrementA),...
+    lambda_unweight(1,i_incrementA), efficiency_unweight(1,i_incrementA), radius_unweight(1,i_incrementA), diameter_unweight(1,i_incrementA),...
+    lambda_weight(1,i_incrementA), efficiency_weight(1,i_incrementA), radius_weight(1,i_incrementA), diameter_weight(1,i_incrementA), ...
+    BC_bin(1,i_incrementA), BC_wei(1,i_incrementA), s_D_out(1,i_incrementA), s_D_in(1,i_incrementA), s_D(1,i_incrementA),...
+    LCC(1,i_incrementA)...
+    ] ...
+    = matrix_stats(E0_YearA,country_ISO3alphatradecodes);
+
+%% Save baseline network statistics to file
+StatName = {'# of Nodes';'# of Links';'# of exporting nodes';'# of importing nodes';'Total Trade (tons)';...
+    'network (unweighted) characteristic path length'; 'network (unweighted) global efficiency';
+    'network radius (unweighted)'; 'network diameter (unweighted)';
+    'network (weighted) characteristic path length'; 'network (weighted) global efficiency';
+    'network radius (weighted)'; 'network diameter (weighted)'};
+
+OutStats = [ NumbersOfNodes(1,:);NumbersOfLinks(1,:);NumNodes_out(1,:);NumNodes_in(1,:);TotalFlow(1,:);...
+    lambda_unweight(1,:); efficiency_unweight(1,:); radius_unweight(1,:); diameter_unweight(1,:);...
+    lambda_weight(1,:); efficiency_weight(1,:); radius_weight(1,:); diameter_weight(1,:)];
+
+T = table(OutStats,...
+    'RowNames',StatName);
+writetable(T,[EventFolder 'Tables/stats_baseline_' title_YearA '.txt'],'WriteRowNames',true);
+
+%% Time series data for epicenter(s) and globe
+% Initialize
+E_epicenter     = zeros(num_increments+1,num_epicenters);
+I_epicenter     = zeros(num_increments+1,num_epicenters);
+P_epicenter     = zeros(num_increments+1,num_epicenters);
+R_epicenter     = zeros(num_increments+1,num_epicenters);
+U_epicenter     = zeros(num_increments+1,num_epicenters);
+SUR_epicenter   = zeros(num_increments+1,num_epicenters);
+%
+E_global  =zeros(num_increments+1,1);
+I_global  =zeros(num_increments+1,1);
+P_global  =zeros(num_increments+1,1); 
+R_global  =zeros(num_increments+1,1);
+U_global  =zeros(num_increments+1,1);
+SUR_global=zeros(num_increments+1,1);
+
+% Assign first time step value
+E_epicenter(1,1:num_epicenters) = E0_YearA_vec(i_Epicenter);
+I_epicenter(1,1:num_epicenters) = I0_YearA_vec(i_Epicenter);
+P_epicenter(1,1:num_epicenters) = P0_YearA_FBS(i_Epicenter);
+R_epicenter(1,1:num_epicenters) = R0_YearA(i_Epicenter);
+U_epicenter(1,1:num_epicenters) = U0_YearA(i_Epicenter);
+SUR_epicenter(1,1:num_epicenters) = SUR_0_YearA(i_Epicenter);
+%
+E_global(1,1)   =E0_YearA_global;
+I_global(1,1)   =I0_YearA_global;
+P_global(1,1)   =P0_YearA_global; 
+R_global(1,1)   =R0_YearA_global;
+U_global(1,1)   =U0_YearA_global;
+SUR_global(1,1) =SUR_0_global;
+
+%%  Simulation Disruptions: functions "sim_cascade" and "sim_diagnostics"
+%    network statistics computed in "matrix_stats"
+%    Note: dRsv is positive if a commodity was consumed
+%          dR_YearA is negative if commodity is consumed (used reserves)
+for i_increment = 1:num_increments
+    
+    % % First, initialize "available" stocks
+    if flag_threshold==0
+        R0_YearA_available = R0_YearA;
+    elseif flag_threshold==1
+        R0_YearA_available = R0_YearA_threshold;
+    end
+    
+    % Vectors to quantify shock-related production changes
+    dP_YearA = zeros(size(P0_YearA_FBS));
+    dP_YearA(i_Epicenter) = -ProdLoss_Increments(i_increment)*P0_YearA_FBS(i_Epicenter);
+
+    % **** Call global food network cascade model ***
+    [dR_YearA,dC_YearA,dE_YearA,flag_equilibrium] = ...
+        sim_cascade(dP_YearA, P0_YearA_FBS, R0_YearA_available, E0_YearA, ...
+        cfrac, asym,kmax, amin, anim_out);
+    
+    % Diagnostic to check simulation
+    [ message1, message2 ] = sim_diagnostics( P0_YearA_FBS, E0_YearA, dP_YearA, dR_YearA, dC_YearA, dE_YearA, tol, country_FAOSTATnames);
+    if message1 ==1
+        ['Total dC + dR does not match initial shock.']
+        return
+    elseif message2 ==2
+        ['Net supply change does not match dC + dR for countries.']
+        return
+    end
+
+    % Save changes for each year
+    dE_YearA_save(:,:,i_increment) = dE_YearA(:,:);
+    dR_YearA_save(:,i_increment) = dR_YearA(:);
+    dC_YearA_save(:,i_increment) = dC_YearA(:);
+    
+    % Update export matrix trade flows
+    WD(:,:) = E0_YearA + dE_YearA;
+    
+    % Remove negative values in export matrix if within tolerance
+    % (within relative difference of tol)
+    index_negE =find(WD<0);
+    discrep = (sum(WD(index_negE)))/sum(dP_YearA);
+    if (abs(discrep) > tol)
+        'Problem with Export update' %#ok<NOPTS>                                                                                                                                                                                                                                                  ' %#ok<NOPTS>
+        error = sum(WD(index_negE))  %#ok<NOPTS>
+        return 
+    else
+        index_negE =find(WD<0);
+        error = sum(WD(index_negE)) %#ok<NOPTS>
+        WD(index_negE)=0; % remove negative values
+    end
+    WD_YearA_save(:,:,i_increment) = WD(:,:);    
+    
+    % Update Food Balance only for SUR but not for next dP value
+    % (Imports,Exports,Production, Reserves)
+    E0_YearA_update = sum(WD,2);             % export vector
+    I0_YearA_update = sum(WD,1)';            % import vector
+    P0_YearA_update = P0_YearA_FBS+dP_YearA; % production vector                                                                                                                                                                                                                                             
+    
+    % Save global values for time series
+    E_global(i_increment+1,1)   = nansum(E0_YearA_update);
+    I_global(i_increment+1,1)   = nansum(I0_YearA_update);
+    P_global(i_increment+1,1)   = nansum(P0_YearA_update); 
+    R_global(i_increment+1,1)   = nansum(R0_YearA_available)+ nansum(dR_YearA);
+    U_global(i_increment+1,1) = nansum(P0_YearA_update)-nansum(dR_YearA); %+nansum(dRsv0_YearA) this was the obs. reserve use
+    SUR_global(i_increment+1,1:num_epicenters) = ...
+        R_global(i_increment+1,1)./ U_global(i_increment+1,1);  
+
+    % Save epicenter values for time series 
+    E_epicenter(i_increment+1,1:num_epicenters) = E0_YearA_update(i_Epicenter);
+    I_epicenter(i_increment+1,1:num_epicenters) = I0_YearA_update(i_Epicenter);
+    P_epicenter(i_increment+1,1:num_epicenters) = P0_YearA_update(i_Epicenter);
+    R_epicenter(i_increment+1,1:num_epicenters) = R0_YearA_available(i_Epicenter)+ dR_YearA(i_Epicenter); 
+    U_epicenter(i_increment+1,1:num_epicenters) = P0_YearA_update(i_Epicenter)+I0_YearA_update(i_Epicenter)-...
+        E0_YearA_update(i_Epicenter) -dR_YearA(i_Epicenter); %+dRsv0_YearA(i_Epicenter) this was the obs. reserve use
+    SUR_epicenter(i_increment+1,1:num_epicenters) = R_epicenter(i_increment+1,1:num_epicenters)...
+        ./U_epicenter(i_increment+1,1:num_epicenters);
+    
+    % Compute network statistics
+    [ NumbersOfNodes_EXP(i_increment,1),NumbersOfLinks_EXP(i_increment,1),...
+        NumNodes_out_EXP(i_increment,1) ,NumNodes_in_EXP(i_increment,1),...
+        TotalFlow_EXP(i_increment,1) ,...
+        lambda_unweight_EXP(i_increment,1), efficiency_unweight_EXP(i_increment,1),...
+        radius_unweight_EXP(i_increment,1) , diameter_unweight_EXP(i_increment,1) ,...
+        lambda_weight_EXP(i_increment,1) , efficiency_weight_EXP(i_increment,1),...
+        radius_weight_EXP(i_increment,1) , diameter_weight_EXP(i_increment,1), ...
+        BC_bin_EXP(i_increment,1), BC_wei_EXP(i_increment,1),...
+        s_D_out_EXP(i_increment,1),s_D_in_EXP(i_increment,1),s_D_EXP(i_increment,1), ...
+        LCC_EXP(i_increment,1)...
+        ] ...
+        = matrix_stats(WD,country_ISO3alphatradecodes );
+    
+    % Save export matrix and reserves for next increment/time step (uncomment below)
+    %E0_YearA=WD;
+    %R0_YearA = R0_YearA_available + dR_YearA;
+    %R0_YearA(find(R0_YearA<0))=0;
+    % Clear yearly variables
+    
+    clear dE_YearA dR_YearA dC_YearA
+end
+
+
+%% Subset matrix and add additional row/column for "Rest of World"
+WD_YearA_final= squeeze(WD_YearA_save(:,:,end));
+WD_YearA_final_subset = zeros(number_subsetCountries1+1,number_subsetCountries1+1);
+
+for i_country = 1:number_subsetCountries1
+    % Assign exports from each subset country
+    % (Identify column in fulll matrix and assign to subset matrix)
+    WD_YearA_final_subset(1:number_subsetCountries1,i_country)=...
+        WD_YearA_final(subset_index,subset_index(i_country));
+    
+    WD_YearA_final_subset(number_subsetCountries1+1,i_country)=...
+        nansum(WD_YearA_final(restofWorld_Index,subset_index(i_country)));
+end
+
+% Import/exports between subset countries and "Rest of World"
+for i_country = 1:number_subsetCountries1
+    WD_YearA_final_subset(i_country,number_subsetCountries1+1)=...
+        nansum(WD_YearA_final(subset_index(i_country),restofWorld_Index));
+end
+
+% Import/exports amoung "Rest of World"
+temp=WD_YearA_final(restofWorld_Index,restofWorld_Index);
+WD_YearA_final_subset(number_subsetCountries1+1,number_subsetCountries1+1)=nansum(temp(:));
+
+if abs(nansum(WD_YearA_final_subset(:))/nansum(WD_YearA_final(:))-1)>1e-14
+    'Error with subset' %#ok<NOPTS>
+    return;
+end
+
+
+%% Save network statistics to table
+StatName = {'# of Nodes';'# of Links';'# of exporting nodes';'# of importing nodes';'Total Trade (tons)';...
+    'network (unweighted) characteristic path length'; 'network (unweighted) global efficiency';
+    'network radius (unweighted)'; 'network diameter (unweighted)';
+    'network (weighted) characteristic path length'; 'network (weighted) global efficiency';
+    'network radius (weighted)'; 'network diameter (weighted)'};
+
+i_incrementA = 1;
+OutStats_YearA = [ NumbersOfNodes_EXP(:,i_incrementA)';NumbersOfLinks_EXP(:,i_incrementA)';NumNodes_out_EXP(:,i_incrementA)';NumNodes_in_EXP(:,i_incrementA)';TotalFlow_EXP(:,i_incrementA)';...
+    lambda_unweight_EXP(:,i_incrementA)'; efficiency_unweight_EXP(:,i_incrementA)'; radius_unweight_EXP(:,i_incrementA)'; diameter_unweight_EXP(:,i_incrementA)';...
+    lambda_weight_EXP(:,i_incrementA)'; efficiency_weight_EXP(:,i_incrementA)'; radius_weight_EXP(:,i_incrementA)'; diameter_weight_EXP(:,i_incrementA)'];
+
+T = table(OutStats_YearA,...
+    'RowNames',StatName);
+writetable(T,[EventFolder 'Stats_' epicentername '_' title_YearA '.dat'],'WriteRowNames',true);
+
+
+%% CIRCOS: Save Networks to file for use by software Circos
+cnames = countrysubset_names1(:,2);
+cnames{length(countrysubset_names1)+1}='Rest.of.World';
+
+% Original flows
+T = table(round(E0_YearA_subset/1e6),...
+    'RowNames',cnames);
+writetable(T,[EventFolder 'Tables/CerealTrade_millionkcal_Start_' country_print1 '_' title_YearA '_' epicentername '.dat'],'WriteRowNames',true);
+
+% Final flows
+T2 = table(round(WD_YearA_final_subset/1e6),...
+    'RowNames',cnames);
+writetable(T2,[EventFolder 'Tables/CerealTrade_millionkcal_Final_' country_print1 '_' title_YearA '_' epicentername '.dat'],'WriteRowNames',true);
+
+
+%% CYTOSCAPE: Save Networks to file for use by software Cytoscape
+Network = squeeze(dE_YearA_save(:,:,i_increment));
+% Create 4 column cell arrray (with columns corresponding to Source, Destination, Weight, and Weight -- repeated for plotting)
+Network3Col = cell(length(Network)^2,6);
+
+% Assign country codes to all possible links
+list_all = 1:length(Network);
+max_connects = length(Network); %%%-1;
+counter = 1;
+i_increment = 1;
+
+for i_node = 1:length(Network)
+    % Indices counter
+    indices = 1+max_connects*(counter-1):max_connects*counter;
+
+    temp = list_all;
+    %temp(temp==i_node)=[];
+    
+    % Data from variable dE_YearA_save (lost exports)
+    Network3Col(indices,1)=ISO3alpha(i_node,1);%%%i_node;
+    Network3Col(indices,2)=ISO3alpha(:,1);%%% temp;
+    Network3Col(indices,3)= num2cell(Network(i_node,:)); % export from source to destination
+    Network3Col(indices,4)= num2cell(Network(i_node,:)); % (repeat) export from source to destination
+    Network3Col(indices,5)= num2cell(ones(1,length(indices))*nansum(Network(i_node,:))); %total exports of source county
+    Network3Col(indices,6)= num2cell(nansum(Network,1)); % Sum columns to get total imports of destination country
+    counter= counter+1;
+end
+clear temp;
+
+% Cytoscape Output: Remove links with NO trade
+rm_rows =  find(cell2mat(Network3Col(:,3))==0);
+Network3Col(rm_rows,:)=[]; clear rm_rows;
+%%%dlmcell([FigFolder 'CytoscapeData_Network_LostExport_' epicentername '_' title_YearA '.txt'],Network3Col);
+
+
+%% Extract network statistics for individual country
+%i_Epicenter = strfind(country_FAOSTATnames, 'United States of America');
+%i_Epicenter = strfind(country_FAOSTATnames, 'Ireland');
+%i_Epicenter = strfind(country_FAOSTATnames, 'Republic of Korea');
+%Index = find(not(cellfun('isempty', i_Epicenter)));
+
+%BC_bin_EXP_USA =squeeze(BC_bin_EXP(Index,:,:));
+%BC_wei_EXP_USA =squeeze(BC_wei_EXP(Index,:,:));
+
+%% Transient Network Figures
+if flag_figstime == 1
+    titlename = ['Stocks to Use Ratio in ' epicentername];
+    filename = [FigFolder 'SUR_' epicentername '_' title_YearA '.eps'];
+    figure
+    semilogx([0 ProdLoss_Increments],SUR_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Crimson'),'Marker','s','MarkerFaceColor',rgb('Crimson'),'MarkerSize',10)
+    hold on
+    ylabel('SUR','FontSize',24);
+    xlabel('Production Loss Fraction','FontSize',24);
+    title([titlename],'FontSize',28)
+    set(gca,'Box','on')
+    legend(title_YearA)
+    set(get(gcf,'CurrentAxes'),'FontSize',18)
+    set(gca,'XMinorTick','off')  % sets Minor X Ticks to display
+    set(gcf,'Renderer','painters') %only vector graphics that matlab has- painters
+    set(gcf,'OuterPosition',[170 1200 1000 500]) %left edge botton edge; width height
+    set(gcf,'PaperPositionMode','auto')
+    print('-depsc','-painters','-r600',filename)
+  
+    titlename = ['Reserves in ' epicentername];
+    filename = [FigFolder 'R_' epicentername '_' title_YearA '.eps'];
+    figure
+    semilogx([0 ProdLoss_Increments],R_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Crimson'),'Marker','s','MarkerFaceColor',rgb('Crimson'),'MarkerSize',10)
+    hold on
+    ylabel(['R, ' flow_type],'FontSize',24);
+    xlabel('Fraction of Production Lost','FontSize',24);
+    title([titlename],'FontSize',28)
+    set(gca,'Box','on')
+    legend(title_YearA)
+    set(get(gcf,'CurrentAxes'),'FontSize',18)
+    set(gca,'XMinorTick','off')  % sets Minor X Ticks to display
+    set(gcf,'Renderer','painters') %only vector graphics that matlab has- painters
+    set(gcf,'OuterPosition',[170 1200 1000 500]) %left edge botton edge; width height
+    set(gcf,'PaperPositionMode','auto')
+    print('-depsc','-painters','-r600',filename)   
+
+    titlename = ['Epicenter Food Balance, ' epicentername];
+    filename = [FigFolder 'Trade_' epicentername '_' title_YearA '.eps'];
+    figure
+    plot([0 ProdLoss_Increments],P_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Green'),'Marker','s','MarkerFaceColor',rgb('Green'),'MarkerSize',10)
+    hold on
+    plot([0 ProdLoss_Increments],E_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Crimson'),'Marker','s','MarkerFaceColor',rgb('Crimson'),'MarkerSize',10)
+    plot([0 ProdLoss_Increments],I_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('DodgerBlue'),'Marker','s','MarkerFaceColor',rgb('DodgerBlue'),'MarkerSize',10)
+    plot([0 ProdLoss_Increments],R_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Gray'),'Marker','s','MarkerFaceColor',rgb('Gray'),'MarkerSize',10)
+    plot([0 ProdLoss_Increments],U_epicenter,'LineStyle','--','LineWidth',3,'Color',rgb('Sienna'),'Marker','s','MarkerFaceColor',rgb('Sienna'),'MarkerSize',10)
+    ylabel(flow_type,'FontSize',24);
+    xlabel('Fraction of Production Lost','FontSize',24);
+    title([titlename],'FontSize',28)
+    set(gca,'Box','on')
+    legend({'Production','Exports','Imports','Reserves','Use'})
+    set(get(gcf,'CurrentAxes'),'FontSize',18)
+    set(gca,'XMinorTick','off')  % sets Minor X Ticks to display
+    set(gcf,'Renderer','painters') %only vector graphics that matlab has- painters
+    set(gcf,'OuterPosition',[170 1200 1000 500]) %left edge botton edge; width height
+    set(gcf,'PaperPositionMode','auto')
+    print('-depsc','-painters','-r600',filename)  
+%----------------
+    titlename = ['Global Food Balance'];
+    filename = [FigFolder 'GlobalFoodBalance_' epicentername '_' title_YearA '.eps'];
+    figure
+    plot([0 ProdLoss_Increments],P_global,'LineStyle','--','LineWidth',3,'Color',rgb('Green'),'Marker','s','MarkerFaceColor',rgb('Green'),'MarkerSize',10)
+    hold on
+    plot([0 ProdLoss_Increments],E_global,'LineStyle','--','LineWidth',3,'Color',rgb('Purple'),'Marker','s','MarkerFaceColor',rgb('Purple'),'MarkerSize',10)
+    plot([0 ProdLoss_Increments],R_global,'LineStyle','--','LineWidth',3,'Color',rgb('Gray'),'Marker','s','MarkerFaceColor',rgb('Gray'),'MarkerSize',10)
+    plot([0 ProdLoss_Increments],U_global,'LineStyle','--','LineWidth',3,'Color',rgb('Sienna'),'Marker','s','MarkerFaceColor',rgb('Sienna'),'MarkerSize',10)
+    ylabel(flow_type,'FontSize',24);
+    xlabel('Fraction of Production Lost','FontSize',24);
+    title([titlename],'FontSize',28)
+    set(gca,'Box','on')
+    legend({'Production','Trade','Reserves','Use'})
+    set(get(gcf,'CurrentAxes'),'FontSize',18)
+    set(gca,'XMinorTick','off')  % sets Minor X Ticks to display
+    set(gcf,'Renderer','painters') %only vector graphics that matlab has- painters
+    set(gcf,'OuterPosition',[170 1200 1000 500]) %left edge botton edge; width height
+    set(gcf,'PaperPositionMode','auto')
+    print('-depsc','-painters','-r600',filename)      
+%----------------
+    
+    titlename = 'Number of Links';
+    labX = 'Fraction of Production Lost';
+    X_data=ProdLoss_Increments;
+    labY = 'number';
+    Y_data=NumbersOfLinks_EXP;
+    filename = [FigFolder 'NumbersOfLinks_' epicentername '_' title_YearA '.eps'];
+    leg_names = {title_YearA};
+    puma_line_semilogx( X_data,Y_data,labX,labY,NumbersOfLinks,titlename,filename,leg_names);
+    
+    titlename = 'Average Export Flow';
+    labX = 'Fraction of Production Lost';
+    X_data=ProdLoss_Increments;
+    labY = 'kcal';
+    Y_data=s_D_out_EXP;
+    filename = [FigFolder 'AvgExportFlows_' epicentername '_' title_YearA '.eps'];
+    leg_names = {title_YearA};
+    puma_line_semilogx( X_data,Y_data,labX,labY,s_D_out,titlename,filename,leg_names);
+
+%     titlename = 'Average Import Flows';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'kcal';
+%     Y_data=s_D_in_EXP;
+%     filename = [FigFolder 'AvgImportFlows_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,s_D_in,titlename,filename,leg_names);
+    
+    % Size of Largest Connected Component (LCC), i.e. # of nodes in largest
+    % connected subgraph, where connectivity is defined in a weak form 
+    % (i.e., disregarding directionality)
+    titlename = 'Largest Connected Component';
+    labX = 'Fraction of Production Lost';
+    X_data=ProdLoss_Increments;
+    labY = '# of connections';
+    Y_data=LCC_EXP;
+    filename = [FigFolder 'LCC_' epicentername '_' title_YearA '.eps'];
+    leg_names = {title_YearA};
+    puma_line_semilogx( X_data,Y_data,labX,labY,LCC,titlename,filename,leg_names); 
+    
+%     titlename = 'LCC as fraction';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = '# of connections/# of nodes';
+%     Y_data=LCC_EXP/NumbersOfNodes;
+%     filename = [FigFolder 'LCCfraction_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_line_semilogx( X_data,Y_data,labX,labY,LCC/NumbersOfNodes,titlename,filename,leg_names);     
+    
+    titlename = 'Average Betweenness Centrality';
+    labX = 'Fraction of Production Lost';
+    X_data=ProdLoss_Increments;
+    labY = '-';
+    Y_data=BC_bin_EXP;
+    filename = [FigFolder 'AvgBtwCentral_' epicentername '_' title_YearA '.eps'];
+    leg_names = {title_YearA};
+    puma_line_semilogx( X_data,Y_data,labX,labY,BC_bin,titlename,filename,leg_names);
+    
+    titlename = 'Characteristic weighted path length';
+    labX = 'Fraction of Production Lost';
+    X_data=ProdLoss_Increments;
+    labY = '\lambda_{w}';
+    Y_data=lambda_weight_EXP;
+    filename = [FigFolder 'lambda_weight_' epicentername '_' title_YearA '.eps'];
+    leg_names = {title_YearA};
+    puma_line_semilogx( X_data,Y_data,labX,labY,lambda_weight,titlename,filename,leg_names);
+
+%     titlename = 'Number of Nodes';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'number';
+%     Y_data=NumbersOfNodes_EXP;
+%     filename = [FigFolder 'NumberofNodes_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,NumbersOfNodes,titlename,filename,leg_names);
+
+%     titlename = 'Characteristic unweighted path length';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = '\lambda';
+%     Y_data=lambda_unweight_EXP;
+%     filename = [FigFolder 'lambda_unweight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,lambda_unweight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Efficiency (Unweighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Efficiency';
+%     Y_data=efficiency_unweight_EXP;
+%     filename = [FigFolder 'efficiency_unweight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,efficiency_unweight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Efficiency (Weighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Efficiency';
+%     Y_data=efficiency_weight_EXP;
+%     filename = [FigFolder 'efficiency_weight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,efficiency_weight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Radius (Unweighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Radius';
+%     Y_data=radius_unweight_EXP;
+%     filename = [FigFolder 'radius_unweight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,radius_unweight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Radius (Weighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Radius';
+%     Y_data=radius_weight_EXP;
+%     filename = [FigFolder 'radius_weight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,radius_weight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Diameter (Unweighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Diameter';
+%     Y_data=diameter_unweight_EXP;
+%     filename = [FigFolder 'diameter_unweight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,diameter_unweight,titlename,filename,leg_names);
+%     
+%     titlename = 'Global Network Diameter (Weighted)';
+%     labX = 'Fraction of Production Lost';
+%     X_data=ProdLoss_Increments;
+%     labY = 'Diameter';
+%     Y_data=diameter_weight_EXP;
+%     filename = [FigFolder 'diameter_weight_' epicentername '_' title_YearA '.eps'];
+%     leg_names = {title_YearA};
+%     puma_singleline( X_data,Y_data,labX,labY,diameter_weight,titlename,filename,leg_names);
+    
+end
