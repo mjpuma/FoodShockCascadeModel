@@ -19,6 +19,23 @@ The maintained implementation is the Python package in [`../fsc2015/`](../fsc201
 | `colormap_function.m` | May 2015 | Colour maps used in the figures (ColorBrewer and colour-blind-safe tables). |
 | `VW_analyses/` | 2011–2012 | Country and crop lookup helpers (`country_*.m`, `crop_lookup.m`) and `VWC_siebert_open.m`, which reads the Siebert and Döll (2010) crop water use grids used for virtual water weighting. |
 
+## Historical drought maps (`historical/`)
+
+The two historical analogues in the paper, the 1816 "Year Without a Summer" in Europe and the 1876–1878 Great Drought in Asia, were chosen by mapping paleoclimate reconstructions. Countries with the anomaly over at least half their territory became the export-ban scenarios in table S1 (now [`../scenarios/`](../scenarios/)). These scripts made those maps; [`../fsc2015/figures.py`](../fsc2015/figures.py) redraws them as figure 3.
+
+| File | Last saved | What it does |
+|---|---|---|
+| `T_anomolies_Europe1500_2002.m` | Feb 2014 | Summer (JJA) temperature anomaly over Europe from the Luterbacher et al. (2004) seasonal reconstruction, 0.5°, for 1816. Figure: `figures/TTanomaly_JJA_1816.eps`. |
+| `Great_Victorian_Drought.m` | Aug 2015 | Summer (JJA) PDSI over Asia from the Monsoon Asia Drought Atlas (Cook et al. 2010) for 1876–1878. Figure: `figures/PDSI.JJA.GreatDrought.eps`. This copy was saved after the paper was published. |
+| `China_1960_Drought.m` | Dec 2013 | The same map for the 1959–1961 drought in China. It is not one of the paper's scenarios. Figure: `figures/PDSI.JJA.China1960Drought.eps`. |
+
+The reconstructions themselves are not included. Cite and download them from NOAA NCEI Paleoclimatology:
+
+- Luterbacher, J., Dietrich, D., Xoplaki, E., Grosjean, M., and Wanner, H. (2004), European seasonal and annual temperature variability, trends, and extremes since 1500, *Science* 303, 1499–1503, doi:10.1126/science.1093877.
+- Cook, E.R., Anchukaitis, K.J., Buckley, B.M., D'Arrigo, R.D., Jacoby, G.C., and Wright, W.E. (2010), Asian monsoon failure and megadrought during the last millennium, *Science* 328, 486–489, doi:10.1126/science.1185188.
+
+They also use `colormap_function.m` (above), the m_map toolbox, and `rgb.m` from the MATLAB File Exchange.
+
 ## Running them
 
 They will not run as they are. They read FAOSTAT and World Bank extracts downloaded in 2012–2014 from local Dropbox folders that are not part of this repository (country lists, GDP and population spreadsheets, bilateral trade matrices, shapefiles). The project's own helpers (the FAOSTAT loaders, colour maps and lookups) are included above. Third-party code they call is not included and should be obtained from its authors: `logfit` by Jonathan Lansey (MATLAB File Exchange), the Complex Networks toolbox by Lev Muchnik (`GraphLoadFromFile`, `GraphRemoveUnlinkedNodes`), and the m_map mapping toolbox by Rich Pawlowicz (`m_proj`, `m_patch`, `m_grid`).
